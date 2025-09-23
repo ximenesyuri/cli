@@ -5,3 +5,5 @@ __pycache__/
 wheels/
 *.egg-info
 .venv
+*.py[oc]
+.env

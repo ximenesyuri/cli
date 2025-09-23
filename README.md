@@ -1,28 +1,28 @@
 # About
 
-`cly` is a lightweight solution to build Python CLIs quickly following a [fastAPI](https://github.com/fastapi/fastapi)-like syntax. No dependencies.
+`cli` is a lightweight solution to build Python CLIs quickly following a [fastAPI](https://github.com/fastapi/fastapi)-like syntax. No dependencies.
 
 # Install
 
 With `pip`:
 
 ```
-pip install git+https://github.com/pythonalta/cly
+pip install git+https://github.com/pythonalta/cli
 ```
 
 With [py](https://github.com/ximenesyuri/py):
 
 ```
-py install pythonalta/cly
+py install pythonalta/cli
 ```
 
 # Basic Usage
 
-In `cly` you create a CLI as you create an app in `fastAPI`:
+In `cli` you create a CLI as you create an app in `fastAPI`:
 
 ```python
 ## in cli.py 
-from cly import CLI
+from cli import CLI
 cli = CLI(name="my_cli", desc="Some description")
 ```
 
@@ -73,9 +73,9 @@ Furthermore, you can organize commands into groups as in `fastAPI` you can organ
         
 ```python
 # in groups/group.py
-from cly import CLIGroup
+from cli import Group
 
-cli_group = CLIGroup(
+cli_group = Group(
     name='cli_group',
     desc='Some group of commands'
 )
@@ -85,7 +85,7 @@ def group_command_callback(arg1, arg2, ...):
     ...
 
 # in cli.py
-from cly import CLI
+from cli import CLI
 from groups.group import cli_group
 
 cli = CLI(name="my_cli", desc="Some description")
@@ -97,7 +97,7 @@ cli.include_group(cli_group, preffix='/group')
 You can set command and prefixes aliases:
 
 ```python
-from cly import CLI
+from cli import CLI
 from groups.group import cli_group
 
 # command with aliases
@@ -111,12 +111,12 @@ cli.include_group(cli_group, prefix=['/group', '/g'])
 With the above all the following will equally work:
 
 ```bash
-python cly.py group command
-python cly.py group cmd
-python cly.py group c
-python cly.py g command
-python cly.py g cmd
-python cly.py g c
+python cli.py group command
+python cli.py group cmd
+python cli.py group c
+python cli.py g command
+python cli.py g cmd
+python cli.py g c
 ```
 
 # Options
@@ -124,7 +124,7 @@ python cly.py g c
 Given the implementation of aliases, options with short and long presentations (as in [POSIX standards](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap12.html) ) can be included as commands with aliases:
 
 ```python
-from cly import CLI
+from cli import CLI
 from groups.group import cli_group
 
 # command with aliases
@@ -134,7 +134,7 @@ cli = CLI(name="my_cli", desc="Some description")
 
 # Completion
 
-When you create a CLI with the `CLI` class from `cly`, it comes equipped with a `--completion` option, which prints a `Bash` completion script for your CLI.
+When you create a CLI with the `CLI` class from `cli`, it comes equipped with a `--completion` option, which prints a `Bash` completion script for your CLI.
 
 ```bash
 # print the completion script

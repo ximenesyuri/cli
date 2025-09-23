@@ -2,7 +2,7 @@ import sys
 import inspect
 import argparse
 
-class cly:
+class cli:
     def exit(code=0):
         sys.exit(code)
 
@@ -18,9 +18,9 @@ class cly:
         try:
             action
             if with_message:
-                cly.done(with_message)
+                cli.done(with_message)
         except Exception as e:
-            cly.error(e)
+            cli.error(e)
 
 
 class CommandNode:
@@ -85,7 +85,7 @@ class CommandNode:
         return out
 
 
-class CLIGroup:
+class Group:
     def __init__(self, name='group', desc="", aliases=None, prefix=None):
         self.name = name
         self.desc = desc
@@ -170,7 +170,7 @@ class CLI:
 
         node = self.root
         for part in prefix_parts:
-             node = node.get_or_create_child(part)
+            node = node.get_or_create_child(part)
 
         def copy_subtree(from_node, to_node):
             if from_node.func is not None:

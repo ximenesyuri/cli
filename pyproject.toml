@@ -1,7 +1,7 @@
 [project]
-name = "cly"
+name = "cli"
 version = "0.0.0"
-description = "A lighweight and intuitive to create Python CLIs"
+description = "A lighweight and intuitive approach to create Python CLIs"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "BSD"}
@@ -15,5 +15,5 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["cly*"]
+include = ["cli*"]
 
