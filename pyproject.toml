@@ -8,6 +8,9 @@ license = {text = "BSD"}
 authors = [
     {name = "Yuri Ximenes", email = "yx.dev@gmx.ie"},
 ]
+dependencies=[
+    'typed @ git+https://github.com/ximenesyuri/typed'
+]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

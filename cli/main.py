@@ -1,10 +1,14 @@
 import sys
 import inspect
 import argparse
+from typed import typed
 
 class cli:
     def exit(code=0):
         sys.exit(code)
+
+    def log(message):
+        print(f"log: {message}")
 
     def error(message):
         print(f'error: {message}')
@@ -14,14 +18,13 @@ class cli:
         print(f'done: {message}')
         sys.exit(0)
 
-    def exec(action=None, with_message=''):
+    def exec(action=None, done='', error=''):
         try:
             action
-            if with_message:
-                cli.done(with_message)
+            if done:
+                cli.done(done)
         except Exception as e:
-            cli.error(e)
-
+            cli.error(f"{error}\nerror:{e}")
 
 class CommandNode:
     def __init__(self, name=None, aliases=None, help_desc=""):
@@ -84,7 +87,6 @@ class CommandNode:
                 processed_children.add(child)
         return out
 
-
 class Group:
     def __init__(self, name='group', desc="", aliases=None, prefix=None):
         self.name = name
@@ -109,7 +111,7 @@ class Group:
             cmd_node.func = func
             cmd_node.completion = completion or {}
             cmd_node.signature = inspect.signature(func)
-            return func
+            return typed(func)
         return decorator
 
     def include_group(self, group, prefix=""):
@@ -157,7 +159,7 @@ class CLI:
             cmd_node.func = func
             cmd_node.completion = completion or {}
             cmd_node.signature = inspect.signature(func)
-            return func
+            return typed(func)
         return decorator
 
     def include_group(self, group, prefix=None):
