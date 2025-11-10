@@ -219,6 +219,7 @@ class CLI:
         if not argv:
             self.show_help()
             sys.exit(1)
+
         node, path, remaining = self.find_node(argv)
         if node.func is None:
             processed_children = set()
@@ -235,25 +236,27 @@ class CLI:
                 print(f"Unknown command: {' '.join(argv)}")
                 self.show_help()
                 sys.exit(1)
+
         params = list(node.signature.parameters.values())
         ap = argparse.ArgumentParser(prog=f"{self.name} {' '.join(path)}", add_help=True)
         for p in params:
             is_required = (p.default == inspect.Parameter.empty)
-            if is_required:
-                ap.add_argument(p.name)
-            else:
-                ap.add_argument(f"--{p.name}", dest=p.name, default=p.default, required=False)
+            default = None if is_required else p.default
+            ap.add_argument(f"--{p.name}", dest=p.name, default=default, required=is_required)
+
         ns, _ = ap.parse_known_args(remaining)
+
         kw = {}
         for p in params:
             if p.default == inspect.Parameter.empty:
                 val = getattr(ns, p.name, None)
                 if val is None:
-                    print(f"Missing required argument: {p.name}")
+                    print(f"Missing required option: --{p.name}")
                     sys.exit(1)
             else:
                 val = getattr(ns, p.name, p.default)
             kw[p.name] = val
+
         node.func(**kw)
 
     def show_help(self):
