@@ -119,7 +119,7 @@ class Group:
                 raise TypeError(
                     "Codomain with wrong type.\n"
                    f"  ==> '{func.__name__}': a command should return Cmd\n"
-                    "      [expected_type] Cmd"
+                    "      [expected_type] Cmd\n"
                    f"      [received_type] {name(func.cod)}"
                 )
             return func
@@ -175,7 +175,7 @@ class CLI:
                 raise TypeError(
                     "Codomain with wrong type.\n"
                    f"  ==> '{func.__name__}': a command should return Cmd\n"
-                    "      [expected_type] Cmd"
+                    "      [expected_type] Cmd\n"
                    f"      [received_type] {name(func.cod)}"
                 )
             return func
