@@ -291,14 +291,22 @@ class CLI:
 
         for label, (prefix, node) in nodes.items():
             opt_map.setdefault(label, [])
+            param_names = set()
             if node.signature is not None:
-                for p in node.signature.parameters.values():
+                # Add options for all declared parameters
+                params = list(node.signature.parameters.values())
+                param_names = {p.name for p in params}
+                for p in params:
                     opt = f"--{p.name}"
                     if opt not in opt_map[label]:
                         opt_map[label].append(opt)
-            if node.completion:
+            # Only add completion entries for parameters that actually exist
+            if node.completion and param_names:
                 val_map.setdefault(label, {})
                 for arg, vals in node.completion.items():
+                    # Skip completion for args not in the function signature
+                    if arg not in param_names:
+                        continue
                     if f"--{arg}" not in opt_map[label]:
                         opt_map[label].append(f"--{arg}")
                     val_map[label][arg] = vals
@@ -462,4 +470,4 @@ class CLI:
             '}',
             f'complete -F _{self.name}_completion {self.name}'
         ])
-        print('\n'.join(script))
+        print('\n'.join(script)) 
