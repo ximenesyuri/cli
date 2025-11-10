@@ -1,7 +1,7 @@
 import sys
 import inspect
 import argparse
-from typed import typed
+from typed import typed, Nill, name
 
 class cli:
     def exit(code=0):
@@ -26,7 +26,10 @@ class cli:
         except Exception as e:
             cli.error(f"{error}\nerror:{e}")
 
-class CommandNode:
+Cmd = Nill
+Cmd.__display__ = 'Cmd'
+
+class _Node:
     def __init__(self, name=None, aliases=None, help_desc=""):
         self.name = name
         self.aliases = aliases if aliases is not None else []
@@ -43,7 +46,7 @@ class CommandNode:
 
     def get_or_create_child(self, name, aliases=None):
         if name not in self.children:
-            self.children[name] = CommandNode(name, aliases)
+            self.children[name] = _Node(name, aliases)
         return self.children[name]
 
     def find_node(self, argv):
@@ -98,7 +101,7 @@ class Group:
             self.prefix = [prefix] if prefix else []
         else:
             self.prefix = []
-        self.root = CommandNode(name, self.aliases if not self.prefix else self.prefix, desc)
+        self.root = _Node(name, self.aliases if not self.prefix else self.prefix, desc)
 
     def cmd(self, path, help=None, completion=None, aliases=None):
         parts = path.strip('/').split('/')
@@ -106,12 +109,20 @@ class Group:
             node = self.root
             for part in parts[:-1]:
                 node = node.get_or_create_child(part)
-            node.add_child(CommandNode(parts[-1], aliases, help or ""))
+            node.add_child(_Node(parts[-1], aliases, help or ""))
             cmd_node = node.children[parts[-1]]
             cmd_node.func = func
             cmd_node.completion = completion or {}
             cmd_node.signature = inspect.signature(func)
-            return typed(func)
+            func = typed(func)
+            if func.cod is not Cmd:
+                raise TypeError(
+                    "Codomain with wrong type.\n"
+                   f"  ==> '{func.__name__}': a command should return Cmd\n"
+                    "      [expected_type] Cmd"
+                   f"      [received_type] {name(func.cod)}"
+                )
+            return func
         return decorator
 
     def include_group(self, group, prefix=""):
@@ -144,7 +155,7 @@ class Group:
 
 class CLI:
     def __init__(self, name='cli', desc=""):
-        self.root = CommandNode(name, help_desc=desc)
+        self.root = _Node(name, help_desc=desc)
         self.name = name
         self.desc = desc
 
@@ -154,12 +165,20 @@ class CLI:
             node = self.root
             for part in parts[:-1]:
                 node = node.get_or_create_child(part)
-            node.add_child(CommandNode(parts[-1], aliases, help or ""))
+            node.add_child(_Node(parts[-1], aliases, help or ""))
             cmd_node = node.children[parts[-1]]
             cmd_node.func = func
             cmd_node.completion = completion or {}
             cmd_node.signature = inspect.signature(func)
-            return typed(func)
+            func = typed(func)
+            if func.cod is not Cmd:
+                raise TypeError(
+                    "Codomain with wrong type.\n"
+                   f"  ==> '{func.__name__}': a command should return Cmd\n"
+                    "      [expected_type] Cmd"
+                   f"      [received_type] {name(func.cod)}"
+                )
+            return func
         return decorator
 
     def include_group(self, group, prefix=None):

@@ -1,1 +1,1 @@
-from cli.main import cli, CLI, Group
+from cli.main import cli, CLI, Group, Cmd
