@@ -30,6 +30,26 @@ class cli:
 Cmd = Nill
 Cmd.__display__ = 'Cmd'
 
+class confirmed: pass
+class declined: pass
+
+class confirmation:
+    _prompt_message = "Do you want to proceed? (y/n): "
+    @classmethod
+    def __enter__(cls):
+        while True:
+            user_response = input(cls._prompt_message).lower().strip()
+            if user_response in ['y', 'yes']:
+                return confirmed
+            elif user_response in ['n', 'no']:
+                print("Action aborted.")
+                return declined
+            else:
+                print("Invalid input. Please enter 'y', 'yes', 'n', or 'no'.")
+    @classmethod
+    def __exit__(cls, exc_type, exc_val, exc_tb):
+        pass
+
 class _Node:
     def __init__(self, name=None, aliases=None, help_desc=""):
         self.name = name
