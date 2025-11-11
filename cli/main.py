@@ -1,6 +1,7 @@
 import sys
 import inspect
 import argparse
+import shlex
 from typed import typed, Nill, name
 
 class cli:
@@ -212,7 +213,13 @@ class CLI:
         return self.root.find_node(argv)
 
     def exec(self, args=None):
-        argv = sys.argv[1:] if args is None else args
+        if args is None:
+            argv = sys.argv[1:]
+        elif isinstance(args, str):
+            argv = shlex.split(args, posix=True)
+        else:
+            argv = list(args)
+
         if '--completion' in argv:
             self.print_completion()
             sys.exit(0)
@@ -238,11 +245,19 @@ class CLI:
                 sys.exit(1)
 
         params = list(node.signature.parameters.values())
+
         ap = argparse.ArgumentParser(prog=f"{self.name} {' '.join(path)}", add_help=True)
+
         for p in params:
             is_required = (p.default == inspect.Parameter.empty)
             default = None if is_required else p.default
-            ap.add_argument(f"--{p.name}", dest=p.name, default=default, required=is_required)
+            ap.add_argument(
+                f"--{p.name}",
+                dest=p.name,
+                default=default,
+                required=is_required,
+                nargs='+'
+            )
 
         ns, _ = ap.parse_known_args(remaining)
 
@@ -255,8 +270,11 @@ class CLI:
                     sys.exit(1)
             else:
                 val = getattr(ns, p.name, p.default)
-            kw[p.name] = val
 
+            if isinstance(val, list):
+                val = ' '.join(val)
+
+            kw[p.name] = val
         node.func(**kw)
 
     def show_help(self):
