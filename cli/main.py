@@ -233,6 +233,80 @@ class CLI:
     def find_node(self, argv):
         return self.root.find_node(argv)
 
+    def _handle_dynamic_completion(self, argv):
+        try:
+            idx = argv.index('--_complete')
+        except ValueError:
+            return
+        argname = None
+        i = idx + 1
+        while i < len(argv) and argv[i] != '--':
+            if argv[i] == '--arg' and i + 1 < len(argv):
+                argname = argv[i + 1]
+                i += 2
+            else:
+                i += 1
+        words = []
+        if i < len(argv) and argv[i] == '--':
+            words = argv[i + 1:]
+
+        if not words:
+            print("")
+            return
+
+        node, path, remaining = self.find_node(words)
+
+        if node is None or node.func is None:
+            print("")
+            return
+
+        seen = {}
+        j = 0
+        while j < len(remaining):
+            tok = remaining[j]
+            if tok.startswith('--'):
+                if '=' in tok:
+                    k, v = tok[2:].split('=', 1)
+                    seen[k] = v
+                else:
+                    k = tok[2:]
+                    v = None
+                    if j + 1 < len(remaining) and not remaining[j + 1].startswith('--'):
+                        v = remaining[j + 1]
+                        j += 1
+                    seen[k] = '' if v is None else v
+            j += 1
+
+        if argname is None:
+            if remaining and remaining[-1].startswith('--') and '=' not in remaining[-1]:
+                argname = remaining[-1][2:]
+            elif len(remaining) >= 2 and remaining[-2].startswith('--'):
+                argname = remaining[-2][2:]
+
+        suggestions = []
+        comp = node.completion or {}
+        if argname in comp:
+            entry = comp[argname]
+            if isinstance(entry, (list, tuple, set)):
+                suggestions = [str(v) for v in entry]
+            elif isinstance(entry, dict):
+                acc = []
+                for dep, func in entry.items():
+                    if callable(func) and dep in seen:
+                        try:
+                            vals = func(seen[dep])
+                            if vals:
+                                acc.extend([str(v) for v in vals])
+                        except Exception:
+                            pass
+                seen_set = set()
+                for v in acc:
+                    if v not in seen_set:
+                        suggestions.append(v)
+                        seen_set.add(v)
+
+        print(" ".join(suggestions))
+
     def exec(self, args=None):
         if args is None:
             argv = sys.argv[1:]
@@ -240,6 +314,10 @@ class CLI:
             argv = shlex.split(args, posix=True)
         else:
             argv = list(args)
+
+        if '--_complete' in argv:
+            self._handle_dynamic_completion(argv)
+            sys.exit(0)
 
         if '--completion' in argv:
             self.print_completion()
@@ -322,6 +400,7 @@ class CLI:
         subcmds_map = {}
         opt_map = {}
         val_map = {}
+        dyn_map = {}
 
         for prefix, node, children in self.root.collect_structure():
             if len(prefix) == 0:
@@ -335,23 +414,23 @@ class CLI:
             opt_map.setdefault(label, [])
             param_names = set()
             if node.signature is not None:
-                # Add options for all declared parameters
                 params = list(node.signature.parameters.values())
                 param_names = {p.name for p in params}
                 for p in params:
                     opt = f"--{p.name}"
                     if opt not in opt_map[label]:
                         opt_map[label].append(opt)
-            # Only add completion entries for parameters that actually exist
             if node.completion and param_names:
-                val_map.setdefault(label, {})
                 for arg, vals in node.completion.items():
-                    # Skip completion for args not in the function signature
                     if arg not in param_names:
                         continue
                     if f"--{arg}" not in opt_map[label]:
                         opt_map[label].append(f"--{arg}")
-                    val_map[label][arg] = vals
+                    if isinstance(vals, (list, tuple, set)):
+                        val_map.setdefault(label, {})
+                        val_map[label][arg] = [str(v) for v in vals]
+                    elif isinstance(vals, dict):
+                        dyn_map.setdefault(label, set()).add(arg)
 
         arrays = []
         for label, argvals in val_map.items():
@@ -386,6 +465,11 @@ class CLI:
             for arg, vals_ in argvals.items():
                 basharr = f'_COMP_{label}__{arg}'
                 script.append(f'    vals["{label}__{arg}"]="{ " ".join(vals_) }"')
+        # Dynamic map
+        script.append('    declare -A dyn')
+        for label, argset in dyn_map.items():
+            for arg in argset:
+                script.append(f'    dyn["{label}__{arg}"]=1')
 
         script.extend([
             '',
@@ -468,18 +552,30 @@ class CLI:
             '        fi',
             '    fi',
             '',
+            '    # Dynamic completion: previous token is an option (e.g., --var2)',
             '    if [[ "$prev" == --* ]]; then',
             '        argname="${prev#--}"',
+            '        if [[ -n "${dyn[${sub_label}__${argname}]}" ]]; then',
+            f'            suggestions="$({self.name} --_complete --arg "${{argname}}" -- "${{words[@]:1:cword-1}}")"',
+            '            COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )',
+            '            return 0',
+            '        fi',
             '        if [[ -n "${vals[${sub_label}__${argname}]}" ]]; then',
             '            COMPREPLY=( $(compgen -W "${vals[${sub_label}__${argname}]}" -- "$cur") )',
             '            return 0',
             '        fi',
             '    fi',
             '',
+            '    # Dynamic completion for --arg=value form',
             '    if [[ "$cur" == --*=* ]]; then',
             '        argname="${cur%%=*}"',
             '        argname="${argname#--}"',
             '        val_primary="${cur#*=}"',
+            '        if [[ -n "${dyn[${sub_label}__${argname}]}" ]]; then',
+            f'            suggestions="$({self.name} --_complete --arg "${{argname}}" -- "${{words[@]:1:cword-1}}")"',
+            '            COMPREPLY=( $(compgen -W "$suggestions" -- "$val_primary") )',
+            '            return 0',
+            '        fi',
             '        if [[ -n "${vals[${sub_label}__${argname}]}" ]]; then',
             '            COMPREPLY=( $(compgen -W "${vals[${sub_label}__${argname}]}" -- "$val_primary") )',
             '            return 0',
@@ -504,7 +600,7 @@ class CLI:
             '        return 0',
             '    fi',
             '',
-            '    if [[ ${#remaining_opts[@]} -gt 0 ]]; then',
+            '    if [[ ${#remaining_opts[@]} > 0 ]]; then',
             '        COMPREPLY+=( $(compgen -W "${remaining_opts[*]}" -- "$cur") )',
             '    fi',
             '',
@@ -512,4 +608,5 @@ class CLI:
             '}',
             f'complete -F _{self.name}_completion {self.name}'
         ])
-        print('\n'.join(script)) 
+        print('\n'.join(script))
+
