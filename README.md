@@ -1,19 +1,19 @@
 # About
 
-`cli` is a lightweight solution to build Python CLIs quickly following a [fastAPI](https://github.com/fastapi/fastapi)-like syntax. No dependencies.
+`cli` is a lightweight solution to quickly build Python CLIs presenting type safety (through [typed](https://github.com/ximenesyuri/typed)) and following a [fastAPI](https://github.com/fastapi/fastapi)-like syntax.
 
 # Install
 
 With `pip`:
 
 ```
-pip install git+https://github.com/pythonalta/cli
+pip install git+https://github.com/ximenesyuri/cli
 ```
 
 With [py](https://github.com/ximenesyuri/py):
 
 ```
-py install pythonalta/cli
+py install ximenesyuri/cli
 ```
 
 # Basic Usage
@@ -171,9 +171,3 @@ python cli.py my_command arg1 <tab>
 ```
       
 it will suggest for `value1`, `value2`, etc, in the same ordering you provided in the `completion` directive.
-
-# To Do
-
-1. add type checking for the argument values
-2. allow the use of variables in the definition of commands, as you can do for endpoints in `fastAPI`.
-3. include an option to turn the CLI globally available
