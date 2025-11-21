@@ -1,3 +1,14 @@
+```python
+           /00 /00
+          | 00|__/
+  /0000000| 00 /00
+ /00_____/| 00| 00
+| 00      | 00| 00
+| 00      | 00| 00
+|  0000000| 00| 00
+ \_______/|__/|__/
+```
+
 # About
 
 `cli` is a lightweight solution to quickly build Python CLIs presenting type safety (through [typed](https://github.com/ximenesyuri/typed)) and following a [fastAPI](https://github.com/fastapi/fastapi)-like syntax.
