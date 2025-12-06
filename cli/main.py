@@ -60,6 +60,8 @@ class _Node:
         self.signature = None
         self.children = dict()
         self.completion = dict()
+        self.kwargs = {}
+        self.args = ()
 
     def add_child(self, child):
         self.children[child.name] = child
@@ -125,7 +127,7 @@ class Group:
             self.prefix = []
         self.root = _Node(name, self.aliases if not self.prefix else self.prefix, desc)
 
-    def cmd(self, path, help=None, completion=None, aliases=None):
+    def cmd(self, path, help=None, completion=None, aliases=None, kwargs=None, args=None):
         parts = path.strip('/').split('/')
         def decorator(func):
             node = self.root
@@ -136,6 +138,8 @@ class Group:
             cmd_node.func = func
             cmd_node.completion = completion or {}
             cmd_node.signature = inspect.signature(func)
+            cmd_node.kwargs = kwargs or {}
+            cmd_node.args = tuple(args or ())
             func = typed(func)
             if func.cod is not Cmd:
                 raise TypeError(
@@ -181,7 +185,7 @@ class CLI:
         self.name = name
         self.desc = desc
 
-    def cmd(self, path, help=None, completion=None, aliases=None):
+    def cmd(self, path, help=None, completion=None, aliases=None, kwargs=None, args=None):
         parts = path.strip('/').split('/')
         def decorator(func):
             node = self.root
@@ -192,6 +196,8 @@ class CLI:
             cmd_node.func = func
             cmd_node.completion = completion or {}
             cmd_node.signature = inspect.signature(func)
+            cmd_node.kwargs = kwargs or {}
+            cmd_node.args = tuple(args or ())
             func = typed(func)
             if func.cod is not Cmd:
                 raise TypeError(
@@ -221,6 +227,8 @@ class CLI:
                 to_node.help = from_node.help
                 to_node.completion = from_node.completion
                 to_node.signature = from_node.signature
+                to_node.kwargs = getattr(from_node, 'kwargs', {})
+                to_node.args = getattr(from_node, 'args', ())
             processed_children = set()
             for cname, child in from_node.children.items():
                 if child not in processed_children:
@@ -347,7 +355,19 @@ class CLI:
 
         ap = argparse.ArgumentParser(prog=f"{self.name} {' '.join(path)}", add_help=True)
 
+        fixed_params = []
+        var_pos_param = None
+        var_kw_param = None
+
         for p in params:
+            if p.kind == inspect.Parameter.VAR_POSITIONAL:
+                var_pos_param = p
+            elif p.kind == inspect.Parameter.VAR_KEYWORD:
+                var_kw_param = p
+            else:
+                fixed_params.append(p)
+
+        for p in fixed_params:
             is_required = (p.default == inspect.Parameter.empty)
             default = None if is_required else p.default
             ap.add_argument(
@@ -358,22 +378,43 @@ class CLI:
                 nargs='+'
             )
 
-        ns, _ = ap.parse_known_args(remaining)
+        for k, default in (node.kwargs or {}).items():
+            ap.add_argument(
+                f"--{k}",
+                dest=k,
+                default=default,
+                required=False,
+                nargs='+'
+            )
+
+        ns, extra_positional = ap.parse_known_args(remaining)
 
         kw = {}
-        for p in params:
-            if p.default == inspect.Parameter.empty:
-                val = getattr(ns, p.name, None)
-                if val is None:
-                    print(f"Missing required option: --{p.name}")
-                    sys.exit(1)
-            else:
-                val = getattr(ns, p.name, p.default)
+        for p in fixed_params:
+            val = getattr(ns, p.name, None if p.default == inspect.Parameter.empty else p.default)
+            if p.default == inspect.Parameter.empty and val is None:
+                print(f"Missing required option: --{p.name}")
+                sys.exit(1)
 
             if isinstance(val, list):
                 val = ' '.join(val)
-
             kw[p.name] = val
+
+        if var_kw_param is not None:
+            merged = {}
+            for k, default in (node.kwargs or {}).items():
+                v = getattr(ns, k, default)
+                if isinstance(v, list):
+                    v = ' '.join(v)
+                merged[k] = v
+            kw[var_kw_param.name] = merged
+
+        if var_pos_param is not None and node.args:
+            expected = len(node.args)
+            if len(extra_positional) != expected:
+                print(f"Expected {expected} positional arguments: {', '.join(node.args)}")
+                sys.exit(1)
+            kw[var_pos_param.name] = tuple(extra_positional)
         node.func(**kw)
 
     def show_help(self):
@@ -413,6 +454,7 @@ class CLI:
         for label, (prefix, node) in nodes.items():
             opt_map.setdefault(label, [])
             param_names = set()
+
             if node.signature is not None:
                 params = list(node.signature.parameters.values())
                 param_names = {p.name for p in params}
@@ -420,6 +462,14 @@ class CLI:
                     opt = f"--{p.name}"
                     if opt not in opt_map[label]:
                         opt_map[label].append(opt)
+
+            if getattr(node, 'kwargs', None):
+                for k in node.kwargs.keys():
+                    param_names.add(k)
+                    opt = f"--{k}"
+                    if opt not in opt_map[label]:
+                        opt_map[label].append(opt)
+
             if node.completion and param_names:
                 for arg, vals in node.completion.items():
                     if arg not in param_names:
