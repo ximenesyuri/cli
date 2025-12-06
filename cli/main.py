@@ -260,13 +260,11 @@ class CLI:
             words = argv[i + 1:]
 
         if not words:
-            print("")
             return
 
         node, path, remaining = self.find_node(words)
 
         if node is None or node.func is None:
-            print("")
             return
 
         seen = {}
@@ -313,8 +311,8 @@ class CLI:
                     if v not in seen_set:
                         suggestions.append(v)
                         seen_set.add(v)
-
-        print(" ".join(suggestions))
+        if suggestions:
+            print(" ".join(suggestions))
 
     def exec(self, args=None):
         if args is None:
@@ -450,19 +448,40 @@ class CLI:
             label = "_".join(prefix).replace('-', '_')
             nodes[label] = (prefix, node)
 
-        all_cmds = set()
+        # Separate top-level commands and groups
+        root_cmds = set()
+        root_groups = set()
+        processed_root_children = set()
+        for name, child in self.root.children.items():
+            if child in processed_root_children:
+                continue
+            processed_root_children.add(child)
+            if child.func is None and child.children:
+                root_groups.add(child.name)
+            else:
+                root_cmds.add(child.name)
+
         subcmds_map = {}
         opt_map = {}
         val_map = {}
         dyn_map = {}
 
+        # Per-parent classification for nested groups
+        parent_cmds = {}   # label -> [child names that are commands]
+        parent_groups = {} # label -> [child names that are groups]
+
         for prefix, node, children in self.root.collect_structure():
             if len(prefix) == 0:
-                all_cmds.update(children)
-            else:
-                pfx = "_".join(prefix).replace('-', '_')
-                if children:
-                    subcmds_map[pfx] = sorted(children)
+                continue
+            pfx = "_".join(prefix).replace('-', '_')
+            if children:
+                subcmds_map[pfx] = sorted(children)
+                for ch_name in children:
+                    child_node = node.children[ch_name]
+                    if child_node.func is None and child_node.children:
+                        parent_groups.setdefault(pfx, []).append(ch_name)
+                    else:
+                        parent_cmds.setdefault(pfx, []).append(ch_name)
 
         for label, (prefix, node) in nodes.items():
             opt_map.setdefault(label, [])
@@ -518,21 +537,43 @@ class CLI:
             '    words=("${COMP_WORDS[@]}")',
             '    cword=$COMP_CWORD',
             '',
-            f'    cmds="{ " ".join(sorted(all_cmds)) }"',
+            # COMP_TYPE is a bitmask. When Bash is in "list all" mode (TAB-TAB or show-all-if-ambiguous),
+            # the lower bits typically differ; we detect list mode with a non-zero 0x2 bit.
+            '    local comp_type="${COMP_TYPE:-0}"',
+            '    local in_list_mode=0',
+            '    if (( (comp_type & 2) != 0 )); then',
+            '        in_list_mode=1',
+            '    fi',
+            '',
+            f'    cmds_main="{ " ".join(sorted(root_cmds)) }"',
+            f'    groups_main="{ " ".join(sorted(root_groups)) }"',
             '',
             '    declare -A subcmds',
         ]
         for k, subs in subcmds_map.items():
             script.append(f'    subcmds["{k}"]="{ " ".join(subs) }"')
+
+        script.append('    declare -A cmds_map')
+        for label, cmdlist in parent_cmds.items():
+            script.append(f'    cmds_map["{label}"]="{ " ".join(sorted(cmdlist)) }"')
+
+        script.append('    declare -A groups_map')
+        for label, grlist in parent_groups.items():
+            script.append(f'    groups_map["{label}"]="{ " ".join(sorted(grlist)) }"')
+
         script.append('    declare -A opts')
         for label, optlist in opt_map.items():
             script.append(f'    opts["{label}"]="{ " ".join(optlist) }"')
+
+        # Fix small typo in previous line:
+        script[-1] = script[-1].replace('))', ')')
+
         script.append('    declare -A vals')
         for label, argvals in val_map.items():
             for arg, vals_ in argvals.items():
                 basharr = f'_COMP_{label}__{arg}'
                 script.append(f'    vals["{label}__{arg}"]="{ " ".join(vals_) }"')
-        # Dynamic map
+
         script.append('    declare -A dyn')
         for label, argset in dyn_map.items():
             for arg in argset:
@@ -564,8 +605,24 @@ class CLI:
             '        echo "$last_label $idx"',
             '    }',
             '',
+            '    # Top-level completion (after the CLI name)',
             '    if [[ $cword -eq 1 ]]; then',
-            '        COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )',
+            '        # If in list mode with empty current token: print headings only, no grid',
+            '        if [[ $in_list_mode -eq 1 && -z "$cur" ]]; then',
+            '            printf "\\n"',
+            '            local _c',
+            '            _c=" ${cmds_main// /, }"',
+            '            printf "commands: %s" "$_c"',
+            '            local _g',
+            '            _g=" ${groups_main// /, }"',
+            '            COMPREPLY=("$(printf "groups:   %s" "$_g")")',
+            '            return 0',
+            '        fi',
+            '',
+            '        # Normal completion mode: do standard token completion',
+            '        local all_top',
+            '        all_top="$cmds_main $groups_main"',
+            '        COMPREPLY=( $(compgen -W "$all_top" -- "$cur") )',
             '        return 0',
             '    fi',
             '',
@@ -606,6 +663,7 @@ class CLI:
             '        [[ $skip -eq 0 ]] && remaining_opts+=("$opt")',
             '    done',
             '',
+            '    # Nested group completion: show commands/groups for the current label',
             '    if [[ -n "${subcmds[$sub_label]}" && $cword -eq $argstart ]]; then',
             '        present=0',
             '        for sub in ${subcmds[$sub_label]}; do',
@@ -614,12 +672,29 @@ class CLI:
             '            fi',
             '        done',
             '        if [[ $present -eq 0 ]]; then',
-            '            COMPREPLY=( $(compgen -W "${subcmds[$sub_label]}" -- "$cur") )',
+            '            local cmds_here groups_here',
+            '            cmds_here="${cmds_map[$sub_label]}"',
+            '            groups_here="${groups_map[$sub_label]}"',
+            '            # In list mode with empty token: print headings only, no grid',
+            '            if [[ $in_list_mode -eq 1 && -z "$cur" ]]; then',
+            '                printf "\\n"',
+            '                local _c',
+            '                _c=" ${cmds_here// /, }"',
+            '                printf "commands: %s" "$_c"',
+            '                local _g',
+            '                _g=" ${groups_here// /, }"',
+            '                COMPREPLY=("$(printf "groups:   %s" "$_g")")',
+            '                return 0',
+            '            fi',
+            '            # Normal completion mode',
+            '            local all_sub',
+            '            all_sub="$cmds_here $groups_here"',
+            '            COMPREPLY=( $(compgen -W "$all_sub" -- "$cur") )',
             '            return 0',
             '        fi',
             '    fi',
             '',
-            '    # Dynamic completion: previous token is an option (e.g., --var2)',
+            '    # Dynamic completion: previous token is an option',
             '    if [[ "$prev" == --* ]]; then',
             '        argname="${prev#--}"',
             '        if [[ -n "${dyn[${sub_label}__${argname}]}" ]]; then',
@@ -676,4 +751,3 @@ class CLI:
             f'complete -F _{self.name}_completion {self.name}'
         ])
         print('\n'.join(script))
-
