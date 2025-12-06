@@ -158,6 +158,7 @@ class Group:
                 to_node.help = from_node.help
                 to_node.completion = from_node.completion
                 to_node.signature = from_node.signature
+                to_node.kwargs = getattr(from_node, 'kwargs', {})
             processed_children = set()
             for cname, child in from_node.children.items():
                 if child not in processed_children:
@@ -330,6 +331,7 @@ class CLI:
         if '--completion' in argv:
             self.print_completion()
             sys.exit(0)
+
         if not argv:
             self.show_help()
             sys.exit(1)
@@ -353,7 +355,10 @@ class CLI:
 
         params = list(node.signature.parameters.values())
 
-        ap = argparse.ArgumentParser(prog=f"{self.name} {' '.join(path)}", add_help=True)
+        ap = argparse.ArgumentParser(
+            prog=f"{self.name} {' '.join(path)}",
+            add_help=True
+        )
 
         fixed_params = []
         var_pos_param = None
@@ -387,15 +392,20 @@ class CLI:
                 nargs='+'
             )
 
-        ns, extra_positional = ap.parse_known_args(remaining)
+        if var_pos_param is not None and node.args:
+            for arg_name in node.args:
+                ap.add_argument(arg_name)
+
+        ns = ap.parse_args(remaining)
 
         kw = {}
+
         for p in fixed_params:
-            val = getattr(ns, p.name, None if p.default == inspect.Parameter.empty else p.default)
+            val = getattr(ns, p.name,
+                          None if p.default == inspect.Parameter.empty else p.default)
             if p.default == inspect.Parameter.empty and val is None:
                 print(f"Missing required option: --{p.name}")
                 sys.exit(1)
-
             if isinstance(val, list):
                 val = ' '.join(val)
             kw[p.name] = val
@@ -413,11 +423,11 @@ class CLI:
                 kw[k] = v
 
         if var_pos_param is not None and node.args:
-            expected = len(node.args)
-            if len(extra_positional) != expected:
-                print(f"Expected {expected} positional arguments: {', '.join(node.args)}")
-                sys.exit(1)
-            kw[var_pos_param.name] = tuple(extra_positional)
+            pos_vals = []
+            for arg_name in node.args:
+                pos_vals.append(getattr(ns, arg_name))
+            kw[var_pos_param.name] = tuple(pos_vals)
+
         node.func(**kw)
 
     def show_help(self):
