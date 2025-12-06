@@ -400,14 +400,17 @@ class CLI:
                 val = ' '.join(val)
             kw[p.name] = val
 
-        if var_kw_param is not None:
-            merged = {}
+        if var_kw_param is not None and (node.kwargs or {}):
             for k, default in (node.kwargs or {}).items():
                 v = getattr(ns, k, default)
                 if isinstance(v, list):
                     v = ' '.join(v)
-                merged[k] = v
-            kw[var_kw_param.name] = merged
+                if k in kw:
+                    raise RuntimeError(
+                        f"Expandable kwarg name '{k}' "
+                        "conflicts with a regular parameter."
+                    )
+                kw[k] = v
 
         if var_pos_param is not None and node.args:
             expected = len(node.args)
@@ -459,6 +462,10 @@ class CLI:
                 params = list(node.signature.parameters.values())
                 param_names = {p.name for p in params}
                 for p in params:
+                    if p.kind in (inspect.Parameter.VAR_POSITIONAL,
+                                  inspect.Parameter.VAR_KEYWORD):
+                        continue
+                    param_names.add(p.name)
                     opt = f"--{p.name}"
                     if opt not in opt_map[label]:
                         opt_map[label].append(opt)
