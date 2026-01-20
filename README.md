@@ -13,6 +13,8 @@
 
 `cli` is a lightweight solution to quickly build Python CLIs presenting type safety (through [typed](https://github.com/ximenesyuri/typed)) and following a [fastAPI](https://github.com/fastapi/fastapi)-like syntax.
 
+---
+
 # Install
 
 With `pip`:
@@ -27,6 +29,8 @@ With [py](https://github.com/ximenesyuri/py):
 py install ximenesyuri/cli
 ```
 
+---
+
 # Basic Usage
 
 In `cli` you create a CLI as you create an app in `fastAPI`:
@@ -37,6 +41,8 @@ from cli import CLI
 cli = CLI(name="my_cli", desc="Some description")
 ```
 
+---
+
 And you execute the CLI as you execute the app in `fastAPI`:
 
 ```python
@@ -44,6 +50,8 @@ And you execute the CLI as you execute the app in `fastAPI`:
 if __name__ = '__main___':
     cli.exec()
 ```
+
+---
 
 Also, you add commands as you add routers:
 
@@ -53,6 +61,8 @@ Also, you add commands as you add routers:
 def my_command_callback(arg1, arg2, ...):
     ...
 ```
+
+---
    
 The above will produce the command `my_command` which has the arguments `arg1`, `arg2`, etc. The arguments, themselves can be called as positional arguments or keyword arguments. In other words, all the following options will work:
 
@@ -65,6 +75,8 @@ python cli.py my_command --arg1=arg1_value --arg2=arg2_value ...
 python cli.py my_command --arg1 arg1_value --arg2 arg2_value ...       
 ```
 
+---
+
 Subcommands are created as you create subendpoints:
  
 ```python
@@ -74,6 +86,8 @@ def subcommand_callback(argA, argB, ...):
     ...
 ```
 
+---
+
 The above will provide:
 
 ```bash
@@ -81,7 +95,9 @@ python cli.py my_command subcommand argA_value argB_value ...
 ```
 
 Furthermore, you can organize commands into groups as in `fastAPI` you can organize endpoints into routers:
-        
+   
+---
+
 ```python
 # in groups/group.py
 from cli import Group
@@ -103,6 +119,8 @@ cli = CLI(name="my_cli", desc="Some description")
 cli.include_group(cli_group, preffix='/group')
 ```
 
+---
+
 # Aliases
 
 You can set command and prefixes aliases:
@@ -119,6 +137,8 @@ cli = CLI(name="my_cli", desc="Some description")
 cli.include_group(cli_group, prefix=['/group', '/g'])
 ```
 
+---
+
 With the above all the following will equally work:
 
 ```bash
@@ -129,6 +149,8 @@ python cli.py g command
 python cli.py g cmd
 python cli.py g c
 ```
+
+---
 
 # Options
            
@@ -143,6 +165,8 @@ cli = CLI(name="my_cli", desc="Some description")
 @cli.cmd('/-o', aliases=['/--option'])
 ```
 
+---
+
 # Completion
 
 When you create a CLI with the `CLI` class from `cli`, it comes equipped with a `--completion` option, which prints a `Bash` completion script for your CLI.
@@ -153,12 +177,16 @@ python cli.py --completion
 ```
 To use it, you should save the script in a file and source the file in your `.bashrc`.
 
+---
+
 ```bash
 # save the completion script
 python cli.py --completion > /path/to/completion.sh
 # use it 
 echo "source /path/to/completion.sh" >> $HOME/.bashrc
 ```
+
+---
 
 The completion script suggests for commands, subcommands and arguments. You can quickly define suggestions for argument values of some command by using the `completion` directive when defining the command decorator:
 
@@ -174,6 +202,7 @@ The completion script suggests for commands, subcommands and arguments. You can 
 def my_command_callback(arg1, arg2, ...):
     ...
 ```
+---
 
 The, when you hit 
 
