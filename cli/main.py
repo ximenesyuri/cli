@@ -715,7 +715,6 @@ class CLI:
             )
             print()
 
-        # INFO
         print("INFO")
         if is_root:
             print("    for help with specific commands, try ")
@@ -731,6 +730,7 @@ class CLI:
             label = "_".join(prefix).replace('-', '_')
             nodes[label] = (prefix, node)
 
+        # Top-level commands and groups
         root_cmds = set()
         root_groups = set()
         processed_root_children = set()
@@ -743,6 +743,18 @@ class CLI:
             else:
                 root_cmds.add(child.name)
 
+        # Root-level flags (including built-ins)
+        root_flags = []
+        flags_for_root = self._collect_flags_for_path([])
+        for gopt in flags_for_root.values():
+            for opt in [gopt.name] + gopt.aliases:
+                if opt not in root_flags:
+                    root_flags.append(opt)
+        if '--help' not in root_flags:
+            root_flags.append('--help')
+        if '--completion' not in root_flags:
+            root_flags.append('--completion')
+
         subcmds_map = {}
         opt_map = {}
         val_map = {}
@@ -750,11 +762,15 @@ class CLI:
 
         parent_cmds = {}
         parent_groups = {}
+        flags_map = {}
 
+        # Build structure and flags_map per prefix (group/command path)
         for prefix, node, children in self.root.collect_structure():
             if len(prefix) == 0:
                 continue
             pfx = "_".join(prefix).replace('-', '_')
+
+            # children -> distinguish groups vs commands for headings
             if children:
                 subcmds_map[pfx] = sorted(children)
                 for ch_name in children:
@@ -764,22 +780,42 @@ class CLI:
                     else:
                         parent_cmds.setdefault(pfx, []).append(ch_name)
 
+            # Flags (global + inherited) for this prefix
+            if pfx not in flags_map:
+                flags_for_pfx = self._collect_flags_for_path(list(prefix))
+                flist = []
+                for gopt in flags_for_pfx.values():
+                    for opt in [gopt.name] + gopt.aliases:
+                        if opt not in flist:
+                            flist.append(opt)
+                # Add built-ins for this context
+                if '--help' not in flist:
+                    flist.append('--help')
+                if '--completion' not in flist:
+                    flist.append('--completion')
+                if flist:
+                    flags_map[pfx] = sorted(flist)
+
+        # Options & values per command node (label)
         for label, (prefix, node) in nodes.items():
             opt_map.setdefault(label, [])
             param_names = set()
 
+            # Parameters from function signature
             if node.signature is not None:
                 params = list(node.signature.parameters.values())
-                param_names = {p.name for p in params}
                 for p in params:
-                    if p.kind in (inspect.Parameter.VAR_POSITIONAL,
-                                  inspect.Parameter.VAR_KEYWORD):
+                    if p.kind in (
+                        inspect.Parameter.VAR_POSITIONAL,
+                        inspect.Parameter.VAR_KEYWORD,
+                    ):
                         continue
                     param_names.add(p.name)
                     opt = f"--{p.name}"
                     if opt not in opt_map[label]:
                         opt_map[label].append(opt)
 
+            # Extra kwargs defined on the node
             if getattr(node, 'kwargs', None):
                 for k in node.kwargs.keys():
                     param_names.add(k)
@@ -787,17 +823,18 @@ class CLI:
                     if opt not in opt_map[label]:
                         opt_map[label].append(opt)
 
-            flags_for_label = self._collect_flags_for_path(list(prefix))
-            for gkey, gopt in flags_for_label.items():
-                for opt in [gopt.name] + gopt.aliases:
-                    if opt not in opt_map[label]:
-                        opt_map[label].append(opt)
+            # Global / group flags for this prefix, from flags_map
+            for opt in flags_map.get(label, []):
+                if opt not in opt_map[label]:
+                    opt_map[label].append(opt)
 
+            # Ensure built-ins exist as options
             if '--help' not in opt_map[label]:
                 opt_map[label].append('--help')
             if '--completion' not in opt_map[label]:
                 opt_map[label].append('--completion')
 
+            # Static/dynamic values for options
             if node.completion and param_names:
                 for arg, vals in node.completion.items():
                     if arg not in param_names:
@@ -810,6 +847,7 @@ class CLI:
                     elif isinstance(vals, dict):
                         dyn_map.setdefault(label, set()).add(arg)
 
+        # Precompute bash arrays for static value completion
         arrays = []
         for label, argvals in val_map.items():
             for arg, vals in argvals.items():
@@ -837,6 +875,7 @@ class CLI:
             '',
             f'    cmds_main="{ " ".join(sorted(root_cmds)) }"',
             f'    groups_main="{ " ".join(sorted(root_groups)) }"',
+            f'    flags_main="{ " ".join(sorted(root_flags)) }"',
             '',
             '    declare -A subcmds',
         ]
@@ -851,11 +890,15 @@ class CLI:
         for label, grlist in parent_groups.items():
             script.append(f'    groups_map["{label}"]="{ " ".join(sorted(grlist)) }"')
 
+        script.append('    declare -A flags_map')
+        for label, flist in flags_map.items():
+            script.append(f'    flags_map["{label}"]="{ " ".join(sorted(flist)) }"')
+
         script.append('    declare -A opts')
         for label, optlist in opt_map.items():
             script.append(f'    opts["{label}"]="{ " ".join(optlist) }"')
 
-        # Fix small typo in previous line:
+        # Keep your earlier typo fix (harmless safeguard)
         script[-1] = script[-1].replace('))', ')')
 
         script.append('    declare -A vals')
@@ -869,6 +912,7 @@ class CLI:
             for arg in argset:
                 script.append(f'    dyn["{label}__{arg}"]=1')
 
+        # Bash logic
         script.extend([
             '',
             '    find_cmd_label() {',
@@ -897,19 +941,66 @@ class CLI:
             '',
             '    # Top-level completion (after the CLI name)',
             '    if [[ $cword -eq 1 ]]; then',
-            '        # If in list mode with empty current token: print headings only, no grid',
+            '        # If in list mode with empty current token: print headings',
             '        if [[ $in_list_mode -eq 1 && -z "$cur" ]]; then',
-            '            printf "\\n"',
-            '            local _c',
-            '            _c=" ${cmds_main// /, }"',
-            '            printf "commands: %s" "$_c"',
-            '            local _g',
-            '            _g=" ${groups_main// /, }"',
-            '            COMPREPLY=("$(printf "groups:   %s" "$_g")")',
-            '            return 0',
+            '            local _f _c _g',
+            '            if [[ -n "$flags_main" ]]; then',
+            '                if [[ -n "$cmds_main" ]]; then',
+            '                    if [[ -n "$groups_main" ]]; then',
+            '                        _f=" ${flags_main// /, }"',
+            '                        printf "\\nflags:    %s" "$_f"',
+            '                        _c=" ${cmds_main// /, }"',
+            '                        printf "\\ncommands: %s" "$_c"',
+            '                        _g=" ${groups_main// /, }"',
+            '                        COMPREPLY=("$(printf "groups:   %s" "$_g")")',
+            '                        return 0',
+            '                    else',
+            '                        _f=" ${flags_main// /, }"',
+            '                        printf "\\nflags:    %s" "$_f"',
+            '                        _c=" ${cmds_main// /, }"',
+            '                        COMPREPLY=("$(printf "commands: %s" "$_c")")',
+            '                        return 0',
+            '                    fi',
+            '                else',
+            '                    if [[ -n "$groups_main" ]]; then',
+            '                        _f=" ${flags_main// /, }"',
+            '                        printf "\\nflags:    %s" "$_f"',
+            '                        _g=" ${groups_main// /, }"',
+            '                        COMPREPLY=("$(printf "groups:   %s" "$_g")")',
+            '                        return 0',
+            '                    else',
+            '                        _f=" ${flags_main// /, }"',
+            '                        COMPREPLY=("$(printf "flags:   %s" "$_f")")',
+            '                        return 0',
+            '                    fi',
+            '                fi',
+            '            else',
+            '                if [[ -n "$cmds_main" ]]; then',
+            '                    if [[ -n "$groups_main" ]]; then',
+            '                        _c=" ${cmds_main// /, }"',
+            '                        printf "\\ncommands: %s" "$_c"',
+            '                        _g=" ${groups_main// /, }"',
+            '                        COMPREPLY=("$(printf "groups:   %s" "$_g")")',
+            '                        return 0',
+            '                    else',
+            '                        _c=" ${cmds_main// /, }"',
+            '                        COMPREPLY=("$(printf "commands: %s" "$_c")")',
+            '                        return 0',
+            '                    fi',
+            '                else',
+            '                    if [[ -n "$groups_main" ]]; then',
+            '                        _g=" ${groups_main// /, }"',
+            '                        COMPREPLY=("$(printf "groups:   %s" "$_g")")',
+            '                        return 0',
+            '                    else',
+            '                        COMPREPLY=()',
+            '                        return 0',
+            '                    fi',
+            '                fi',
+            '            fi',
             '        fi',
             '',
-            '        # Normal completion mode: do standard token completion',
+            '        # Normal completion mode: suggest top-level commands/groups',
             '        local all_top',
             '        all_top="$cmds_main $groups_main"',
             '        COMPREPLY=( $(compgen -W "$all_top" -- "$cur") )',
@@ -953,7 +1044,7 @@ class CLI:
             '        [[ $skip -eq 0 ]] && remaining_opts+=("$opt")',
             '    done',
             '',
-            '    # Nested group completion: show commands/groups for the current label',
+            '    # Nested group completion: show commands/groups/flags for the current label',
             '    if [[ -n "${subcmds[$sub_label]}" && $cword -eq $argstart ]]; then',
             '        present=0',
             '        for sub in ${subcmds[$sub_label]}; do',
@@ -962,19 +1053,80 @@ class CLI:
             '            fi',
             '        done',
             '        if [[ $present -eq 0 ]]; then',
-            '            local cmds_here groups_here',
+            '            local cmds_here groups_here flags_here',
             '            cmds_here="${cmds_map[$sub_label]}"',
             '            groups_here="${groups_map[$sub_label]}"',
-            '            # In list mode with empty token: print headings only, no grid',
+            '            flags_here="${flags_map[$sub_label]}"',
             '            if [[ $in_list_mode -eq 1 && -z "$cur" ]]; then',
-            '                printf "\\n"',
-            '                local _c',
-            '                _c=" ${cmds_here// /, }"',
-            '                printf " commands: %s" "$_c"',
-            '                local _g',
-            '                _g=" ${groups_here// /, }"',
-            '                COMPREPLY=("$(printf " groups:   %s" "$_g")")',
-            '                return 0',
+            '                if [[ -n "$flags_here" ]]; then',
+            '                    if [[ -n "$cmds_here" ]]; then',
+            '                        if [[ -n "$groups_here" ]]; then',
+            '                            # flags + cmds + groups',
+            '                            local _f _c _g',
+            '                            _f=" ${flags_here// /, }"',
+            '                            printf "\\nflags:    %s" "$_f"',
+            '                            _c=" ${cmds_here// /, }"',
+            '                            printf "\\ncommands: %s" "$_c"',
+            '                            _g=" ${groups_here// /, }"',
+            '                            COMPREPLY=("$(printf "groups:   %s" "$_g")")',
+            '                            return 0',
+            '                        else',
+            '                            # flags + cmds',
+            '                            local _f _c',
+            '                            _f=" ${flags_here// /, }"',
+            '                            printf "\\nflags:    $_f"',
+            '                            _c=" ${cmds_here// /, }"',
+            '                            COMPREPLY=("commands: $_c")',
+            '                            return 0',
+            '                        fi',
+            '                    else',
+            '                        if [[ -n "$groups_here" ]]; then',
+            '                            # flags + groups',
+            '                            local _f _g',
+            '                            _f=" ${flags_here// /, }"',
+            '                            printf "\\nflags:    %s" "$_f"',
+            '                            _g=" ${groups_here// /, }"',
+            '                            COMPREPLY=("groups:   $_g")',
+            '                            return 0',
+            '                        else',
+            '                            # only flags',
+            '                            local _f',
+            '                            _f=" ${flags_here// /, }"',
+            '                            COMPREPLY=("flags:   $_f")',
+            '                            return 0',
+            '                        fi',
+            '                    fi',
+            '                else',
+            '                    if [[ -n "$cmds_here" ]]; then',
+            '                        if [[ -n "$groups_here" ]]; then',
+            '                            # cmds + groups',
+            '                            local _c _g',
+            '                            _c=" ${cmds_here// /, }"',
+            '                            printf "\\ncommands: %s" "$_c"',
+            '                            _g=" ${groups_here// /, }"',
+            '                            COMPREPLY=("$(printf "groups:   %s" "$_g")")',
+            '                            return 0',
+            '                        else',
+            '                            # only cmds',
+            '                            local _c',
+            '                            _c=" ${cmds_here// /, }"',
+            '                            COMPREPLY=("$(printf "commands: %s" "$_c")")',
+            '                            return 0',
+            '                        fi',
+            '                    else',
+            '                        if [[ -n "$groups_here" ]]; then',
+            '                            # only groups',
+            '                            local _g',
+            '                            _g=" ${groups_here// /, }"',
+            '                            COMPREPLY=("$(printf "groups:   %s" "$_g")")',
+            '                            return 0',
+            '                        else',
+            '                            # none',
+            '                            COMPREPLY=()',
+            '                            return 0',
+            '                        fi',
+            '                    fi',
+            '                fi',
             '            fi',
             '            # Normal completion mode',
             '            local all_sub',
@@ -1041,4 +1193,3 @@ class CLI:
             f'complete -F _{self.name}_completion {self.name}'
         ])
         print('\n'.join(script))
-
